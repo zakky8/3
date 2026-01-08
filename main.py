@@ -28,8 +28,8 @@ LOG_FILE = config.get('log_file', 'bot.log')
 admin_balances = config.get('admin_balances', {})
 
 # Original Binary Paths
-ORIGINAL_BGMI_PATH = '/workspaces/venom-V5/bgmi'
-ORIGINAL_VENOM_PATH = '/workspaces/venom-V5/bgmi2'
+ORIGINAL_BGMI_PATH = '/root/venom/bgmi'
+ORIGINAL_VENOM_PATH = None
 
 # --- Helper Functions ---
 def is_authorized(user_id):
@@ -180,3 +180,4 @@ if __name__ == '__main__':
             bot.polling(none_stop=True, interval=0, timeout=40)
         except Exception as e:
             time.sleep(5)
+
