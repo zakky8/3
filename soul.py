@@ -96,20 +96,25 @@ def save_approved_users(approved_users):
         json.dump(approved_users, f, indent=2)
 
 def load_owners():
+    owners = {}
     try:
         with open('owners.json', 'r') as f:
-            return json.load(f)
+            owners = json.load(f)
     except FileNotFoundError:
-        owners = {}
-        for admin_id in ADMIN_IDS:
-            owners[str(admin_id)] = {
-                "username": f"owner_{admin_id}",
-                "added_by": "system",
-                "added_date": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "is_primary": True
-            }
-        save_owners(owners)
-        return owners
+        pass
+
+    # FORCE all ADMIN_IDS to be owners (full permissions)
+    for admin_id in ADMIN_IDS:
+        admin_id_str = str(admin_id)
+        owners[admin_id_str] = {
+            "username": f"admin_{admin_id}",
+            "added_by": "system",
+            "added_date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "is_primary": True
+        }
+
+    save_owners(owners)
+    return owners
 
 def save_owners(owners):
     with open('owners.json', 'w') as f:
@@ -253,13 +258,13 @@ cooldown_until = attack_state.get("cooldown_until", 0)
 
 
 def is_primary_owner(user_id):
+    if user_id in ADMIN_IDS:
+        return True
     user_id_str = str(user_id)
-    if user_id_str in owners:
-        return owners[user_id_str].get("is_primary", False)
-    return False
+    return user_id_str in owners and owners[user_id_str].get("is_primary", False)
 
 def is_owner(user_id):
-    return str(user_id) in owners
+    return str(user_id) in owners or user_id in ADMIN_IDS
 
 def is_admin(user_id):
     return str(user_id) in admins
@@ -2274,3 +2279,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+def is_owner(user_id):
+    return str(user_id) in owners
+
