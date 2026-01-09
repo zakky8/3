@@ -1,8 +1,3 @@
-import os
-import json
-import logging
-import threading
-import time
 import random
 import string
 from datetime import datetime, timedelta
@@ -20,6 +15,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "1440343131:AAHFcNtQdPNvJjYjXw6emDpBfC9ZOzptrXE"
 YML_FILE_PATH = ".github/workflows/main.yml"
 BINARY_FILE_NAME = "soul"
+OWNER_IDS = [1099673604]
 ADMIN_IDS = [1099673604] 
 
 WAITING_FOR_BINARY = 1
@@ -2282,4 +2278,3 @@ if __name__ == '__main__':
 
 def is_owner(user_id):
     return str(user_id) in owners
-
